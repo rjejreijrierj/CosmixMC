@@ -20,6 +20,8 @@ npm run dev
 
 Open the Vite URL printed in the terminal (usually `http://localhost:5173`). For production, build with `npm run build`, then run `NODE_ENV=production npm start` behind HTTPS. Set `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and optionally `PORT` in the hosting environment.
 
+Over HTTPS, sessions use Secure, HTTP-only cookies. Over plain HTTP, the site sends no cookies and instead stores a bearer session token in browser local storage so non-HTTPS test deployments can sign in. Use HTTPS for public deployments: HTTP does not encrypt passwords or bearer tokens in transit.
+
 The first account created becomes the site admin. Later accounts are members. Admins can publish and remove updates, with optional JPG, PNG, GIF, or WebP images up to 8 MB. Uploaded images are stored in `uploads/`; back up that directory when deploying.
 
 ## Paper plugin

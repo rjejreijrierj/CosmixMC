@@ -92,6 +92,7 @@ await database.query(`
 `);
 
 const app = express();
+app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 3000);
 const cookieName = 'cosmix_session';
 const sessionLifetime = 1000 * 60 * 60 * 24 * 14;
@@ -101,11 +102,15 @@ app.use('/uploads', express.static(uploadDir, { maxAge: '1d', immutable: true })
 const hashToken = (token) => createHash('sha256').update(token).digest('hex');
 
 async function currentUser(req, _res, next) {
-  const token = req.headers.cookie
-    ?.split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${cookieName}=`))
-    ?.slice(cookieName.length + 1);
+  const bearer = req.get('authorization')?.match(/^Bearer ([a-f0-9]{64})$/i)?.[1];
+  const cookie = req.secure
+    ? req.headers.cookie
+      ?.split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${cookieName}=`))
+      ?.slice(cookieName.length + 1)
+    : null;
+  const token = req.secure ? cookie : bearer;
   if (!token) return next();
 
   const decodedToken = decodeURIComponent(token);
@@ -140,16 +145,21 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-function createSession(userId, res) {
+async function createSession(userId, req, res) {
   const token = randomBytes(32).toString('hex');
-  return database.query('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
-    [hashToken(token), userId, Date.now() + sessionLifetime]).then(() => res.cookie(cookieName, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: sessionLifetime,
-    path: '/',
-  }));
+  await database.query('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
+    [hashToken(token), userId, Date.now() + sessionLifetime]);
+  if (req.secure) {
+    res.cookie(cookieName, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: true,
+      maxAge: sessionLifetime,
+      path: '/',
+    });
+    return null;
+  }
+  return token;
 }
 
 app.get('/api/session', (req, res) => res.json({ user: req.user ?? null }));
@@ -178,8 +188,8 @@ app.post('/api/signup', async (req, res) => {
     await connection.commit();
     const [users] = await database.query('SELECT id, username, email, role, minecraft_uuid, minecraft_username FROM users WHERE id = ?', [result.insertId]);
     const user = users[0];
-    await createSession(user.id, res);
-    res.status(201).json({ user });
+    const sessionToken = await createSession(user.id, req, res);
+    res.status(201).json({ user, ...(sessionToken ? { sessionToken } : {}) });
   } catch (error) {
     await connection.rollback();
     if (error.code === 'ER_DUP_ENTRY') {
@@ -202,13 +212,13 @@ app.post('/api/login', async (req, res) => {
     return res.status(401).json({ error: 'Email or password is incorrect.' });
   }
   const { password_hash, ...safeUser } = user;
-  await createSession(user.id, res);
-  res.json({ user: safeUser });
+  const sessionToken = await createSession(user.id, req, res);
+  res.json({ user: safeUser, ...(sessionToken ? { sessionToken } : {}) });
 });
 
 app.post('/api/logout', async (req, res) => {
   if (req.sessionToken) await database.query('DELETE FROM sessions WHERE token_hash = ?', [hashToken(req.sessionToken)]);
-  res.clearCookie(cookieName, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' });
+  if (req.secure) res.clearCookie(cookieName, { httpOnly: true, sameSite: 'lax', secure: true, path: '/' });
   res.json({ ok: true });
 });
 

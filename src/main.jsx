@@ -20,15 +20,22 @@ const plugins = [
 ];
 
 async function api(url, options = {}) {
+  const insecureHttp = window.location.protocol === 'http:';
+  const sessionToken = insecureHttp ? window.localStorage.getItem('cosmix_session') : null;
   const response = await fetch(url, {
-    credentials: 'same-origin',
+    credentials: insecureHttp ? 'omit' : 'same-origin',
     ...options,
-    headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
+    headers: {
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+      ...options.headers,
+    },
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const path = new URL(url, window.location.href).pathname;
     if (response.status === 401 && !['/api/login', '/api/signup'].includes(path)) {
+      if (insecureHttp) window.localStorage.removeItem('cosmix_session');
       window.dispatchEvent(new Event('cosmix:auth-expired'));
     }
     throw new Error(data.error || 'Something went wrong. Try again.');
@@ -55,6 +62,7 @@ function App() {
 
   useEffect(() => {
     api('/api/session').then((data) => {
+      if (!data.user && window.location.protocol === 'http:') window.localStorage.removeItem('cosmix_session');
       setUser(data.user);
       if (data.user) api('/api/me/link').then(setMinecraftLink).catch(() => {});
     }).catch(() => {});
@@ -135,6 +143,13 @@ function App() {
     try {
       await api(`/api/${authMode === 'signup' ? 'signup' : 'login'}`, {
         method: 'POST', body: JSON.stringify(values),
+      }).then((result) => {
+        if (window.location.protocol === 'http:') {
+          if (!result.sessionToken) throw new Error('The server did not issue an HTTP session token.');
+          window.localStorage.setItem('cosmix_session', result.sessionToken);
+        } else {
+          window.localStorage.removeItem('cosmix_session');
+        }
       });
       const { user: activeUser } = await api('/api/session');
       if (!activeUser) {
@@ -155,6 +170,7 @@ function App() {
 
   async function logout() {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
+    window.localStorage.removeItem('cosmix_session');
     setUser(null);
     setAccountOpen(false);
     setLinkCode('');
