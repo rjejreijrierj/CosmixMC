@@ -11,12 +11,20 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dataDir = path.join(root, 'data');
 const uploadDir = path.join(root, 'uploads');
+const databaseHost = process.env.DB_HOST?.trim();
+const databasePort = Number(process.env.DB_PORT || 3306);
+if (!databaseHost) {
+  throw new Error('DB_HOST is required. Set it to your MySQL/MariaDB hostname; use 127.0.0.1 only when the database runs in the same environment.');
+}
+if (!Number.isInteger(databasePort) || databasePort < 1 || databasePort > 65535) {
+  throw new Error('DB_PORT must be a valid TCP port between 1 and 65535.');
+}
 await mkdir(dataDir, { recursive: true });
 await mkdir(uploadDir, { recursive: true });
 
 const database = mysql.createPool({
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: Number(process.env.DB_PORT || 3306),
+  host: databaseHost,
+  port: databasePort,
   user: process.env.DB_USER || 'cosmix',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'cosmix',
@@ -26,7 +34,15 @@ const database = mysql.createPool({
   charset: 'utf8mb4',
 });
 
-await database.query('SELECT 1');
+try {
+  await database.query('SELECT 1');
+} catch (error) {
+  await database.end();
+  if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+    throw new Error(`Cannot reach MySQL/MariaDB at ${databaseHost}:${databasePort}. Set DB_HOST to the database provider hostname and verify its port and network access.`, { cause: error });
+  }
+  throw error;
+}
 await database.query(`
   CREATE TABLE IF NOT EXISTS site_settings (
     id TINYINT UNSIGNED PRIMARY KEY,

@@ -26,7 +26,10 @@ async function api(url, options = {}) {
     headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Something went wrong. Try again.');
+  if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event('cosmix:auth-expired'));
+    throw new Error(data.error || 'Something went wrong. Try again.');
+  }
   return data;
 }
 
@@ -53,6 +56,21 @@ function App() {
       if (data.user) api('/api/me/link').then(setMinecraftLink).catch(() => {});
     }).catch(() => {});
     api('/api/updates').then((data) => setUpdates(data.updates)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      setUser((currentUser) => {
+        if (currentUser) {
+          setAccountOpen(false);
+          setLinkCode('');
+          setToast('SESSION EXPIRED. PLEASE LOG IN AGAIN.');
+        }
+        return null;
+      });
+    };
+    window.addEventListener('cosmix:auth-expired', handleExpiredSession);
+    return () => window.removeEventListener('cosmix:auth-expired', handleExpiredSession);
   }, []);
 
   useEffect(() => {
@@ -120,9 +138,11 @@ function App() {
         method: 'POST', body: JSON.stringify(values),
       });
       setUser(signedIn);
-      setMinecraftLink(await api('/api/me/link'));
       setAuthOpen(false);
       setToast(signedIn.role === 'admin' ? 'WELCOME IN. YOU’RE THE SITE ADMIN.' : `WELCOME TO THE SERVER, ${signedIn.username.toUpperCase()}.`);
+      api('/api/me/link').then(setMinecraftLink).catch((error) => {
+        setToast(`SIGNED IN, BUT ACCOUNT LINK STATUS FAILED: ${error.message}`);
+      });
     } catch (error) {
       setToast(error.message);
     } finally {
