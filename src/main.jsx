@@ -27,7 +27,10 @@ async function api(url, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401) window.dispatchEvent(new Event('cosmix:auth-expired'));
+    const path = new URL(url, window.location.href).pathname;
+    if (response.status === 401 && !['/api/login', '/api/signup'].includes(path)) {
+      window.dispatchEvent(new Event('cosmix:auth-expired'));
+    }
     throw new Error(data.error || 'Something went wrong. Try again.');
   }
   return data;
@@ -60,14 +63,10 @@ function App() {
 
   useEffect(() => {
     const handleExpiredSession = () => {
-      setUser((currentUser) => {
-        if (currentUser) {
-          setAccountOpen(false);
-          setLinkCode('');
-          setToast('SESSION EXPIRED. PLEASE LOG IN AGAIN.');
-        }
-        return null;
-      });
+      setUser(null);
+      setAccountOpen(false);
+      setLinkCode('');
+      setToast('SESSION EXPIRED. PLEASE LOG IN AGAIN.');
     };
     window.addEventListener('cosmix:auth-expired', handleExpiredSession);
     return () => window.removeEventListener('cosmix:auth-expired', handleExpiredSession);
@@ -134,14 +133,18 @@ function App() {
     setBusy(true);
     const values = Object.fromEntries(new FormData(event.currentTarget));
     try {
-      const { user: signedIn } = await api(`/api/${authMode === 'signup' ? 'signup' : 'login'}`, {
+      await api(`/api/${authMode === 'signup' ? 'signup' : 'login'}`, {
         method: 'POST', body: JSON.stringify(values),
       });
-      setUser(signedIn);
+      const { user: activeUser } = await api('/api/session');
+      if (!activeUser) {
+        throw new Error('Login succeeded, but the browser did not keep the session cookie. Open the site over HTTPS and try again.');
+      }
+      setUser(activeUser);
       setAuthOpen(false);
-      setToast(signedIn.role === 'admin' ? 'WELCOME IN. YOU’RE THE SITE ADMIN.' : `WELCOME TO THE SERVER, ${signedIn.username.toUpperCase()}.`);
+      setToast(activeUser.role === 'admin' ? 'WELCOME IN. YOU’RE THE SITE ADMIN.' : `WELCOME TO THE SERVER, ${activeUser.username.toUpperCase()}.`);
       api('/api/me/link').then(setMinecraftLink).catch((error) => {
-        setToast(`SIGNED IN, BUT ACCOUNT LINK STATUS FAILED: ${error.message}`);
+        setToast(`SIGNED IN, BUT ACCOUNT LINK STATUS FAILED: ${error.message || 'TRY AGAIN.'}`);
       });
     } catch (error) {
       setToast(error.message);
