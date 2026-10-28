@@ -1,0 +1,13 @@
+database:
+  host: 127.0.0.1
+  port: 3306
+  name: cosmix
+  username: cosmix_plugin
+  password: change-me
+  useSSL: false
+
+rewards:
+  enabled: true
+  commands:
+    - "give {player} diamond 3"
+    - "give {player} golden_apple 2"

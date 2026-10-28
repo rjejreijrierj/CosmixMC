@@ -1,0 +1,14 @@
+name: CosmixLink
+version: 1.0.0
+main: net.cosmixmc.link.CosmixLinkPlugin
+api-version: '1.21'
+description: Link Minecraft UUIDs to Cosmix MC website accounts.
+commands:
+  cosmix:
+    description: Link your Minecraft account to the Cosmix website.
+    usage: /cosmix link <code>
+    permission: cosmixlink.use
+permissions:
+  cosmixlink.use:
+    description: Allows players to link their Minecraft account.
+    default: true
